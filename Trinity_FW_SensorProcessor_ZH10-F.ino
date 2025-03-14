@@ -2,176 +2,169 @@
 #include <Wire.h>
 #include <IWatchdog.h>
 #include <HardwareSerial.h>
-#include <CSE_MillisTimer.h>
-
-#define  LED_PIN PA5
-#define  LOWPOWER_SET_PIN PA1
-#define  PIN_SERIAL_TX1  PB6
-#define  PIN_SERIAL_RX1  PB7
-
-#define  LOWPOWER_OFF_TIME (60*1000)
-#define  LOWPOWER_ON_TIME  (20*1000)
-
-#define  MODE_ON  1
-#define  MODE_LOW  2
 
 
+// Pin Definitions
+#define LED_PIN PA5
+#define LOWPOWER_SET_PIN PA1
+#define PIN_SERIAL_TX1 PB6
+#define PIN_SERIAL_RX1 PB7
+
+// Low Power Timings (milliseconds)
+#define LOWPOWER_OFF_TIME (60 * 1000)
+#define LOWPOWER_ON_TIME  (20 * 1000)
+
+// Device Modes
+#define MODE_ON  1
+#define MODE_LOW 2
+
+// Error Codes
 #define ERROR_NONE 0x00000000lu
 #define ERROR_I2C 0xCCCCCCCClu
 #define ERROR_INIT 0xFFFFFFFFlu
 
-#define I2C_ADDRESS 12
+// I2C Definitions
+#define I2C_ADDRESS 10
 #define I2C_TX_DATA_SIZE 27
 
+// Sensor Model
 #define SENSOR_PROCESSOR_MODEL 0x0003u
 
+// Retries and Limits
 #define MAX_INIT_RETRIES 3
 #define MAX_ERROR_COUNTER 5
 
+// Watchdog Timeout
 #define WATCHDOG_TIMEOUT_MICROSECONDS 5000000
-#define I2C_ADDRESS 10
 
+// I2C Communication
 TwoWire WireSlave;
+uint8_t i2c_tx_data[I2C_TX_DATA_SIZE] = {0};
 
-uint8_t i2c_tx_data[I2C_TX_DATA_SIZE] = { 0 };
+// Serial Communication
 HardwareSerial sensorSerial(PIN_SERIAL_RX1, PIN_SERIAL_TX1);
-HardwareSerial debugSerial(PA3, PA2);//debug
+HardwareSerial debugSerial(PA3, PA2); // Debugging
 
+// Buffer for sensor data
 byte dataBuffer[32];
 int bufferIndex = 0;
 
+// Error Status
 uint32_t device_status_error = ERROR_INIT;
 
-// Variables to store measurements
-int pm1_0 = 0.0f;
-int pm2_5 = 0.0f;
-int pm10 = 0.0f;
+// Measurement Variables
+int pm1_0 = 0;
+int pm2_5 = 0;
+int pm10 = 0;
 
-// Variables to confirm the latest measurement values
-
+// Latest Measurements
 float latest_pm1_0 = 0.0f;
 float latest_pm2_5 = 0.0f;
 float latest_pm10 = 0.0f;
 uint32_t float2hex = 0;
 
-uint32_t tick=0;
-uint32_t Lowpower_timer_tick=0;
+// Timer Variables
+uint32_t tick = 0;
+uint32_t Lowpower_timer_tick = 0;
 uint8_t mode;
 
-
-
-
 void setup() {
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, HIGH);
-
-  pinMode(LOWPOWER_SET_PIN, OUTPUT);
-  digitalWrite(LOWPOWER_SET_PIN, HIGH);
-  
-
-  UpdateTrinityProtocol();
-  WireSlave.setSCL(PA11);
-  WireSlave.setSDA(PA12);
-  WireSlave.begin(I2C_ADDRESS);
-  WireSlave.onRequest(requestEvent); 
-
-  debugSerial.begin (115200);  // Initialize the debug serial port
-  sensorSerial.begin (9600, SERIAL_8N1 ); // Initialize the sensor serial port
-  debugSerial.println("Initializing sensor...");
-  
-  Lowpower_timer_tick=HAL_GetTick();
-  mode = MODE_ON;
-  IWatchdog.begin(WATCHDOG_TIMEOUT_MICROSECONDS);
-  while(sensorSerial.available()){
-    sensorSerial.read();
-  }
-}
-void loop() {
-  IWatchdog.reload();
-  tick = HAL_GetTick();
-  if (tick % 2 == 0) {
+    // Initialize Pins
+    pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, HIGH);
-  }
-  else {
-    digitalWrite(LED_PIN, LOW);
-  }
+    pinMode(LOWPOWER_SET_PIN, OUTPUT);
+    digitalWrite(LOWPOWER_SET_PIN, HIGH);
 
-  delay(500);
-  
-  switch(mode){
-    case MODE_ON:
-        if(ZH10StartMeasurement()){
-          latest_pm1_0 = pm1_0;
-          latest_pm2_5 = pm2_5;
-          latest_pm10 = pm10;
-        }
-        if(tick-Lowpower_timer_tick>LOWPOWER_ON_TIME){
-          Lowpower_timer_tick=tick;
-          debugSerial.println("go LOW");
-          digitalWrite(LOWPOWER_SET_PIN, LOW);
-          mode = MODE_LOW;
-        } 
-      break;
-    case MODE_LOW:
-        if(tick-Lowpower_timer_tick>LOWPOWER_OFF_TIME){
-          Lowpower_timer_tick=tick;
-          debugSerial.println("go ON");
-          digitalWrite(LOWPOWER_SET_PIN, HIGH);
-          mode = MODE_ON;
-          while(sensorSerial.available()){//flush rx buffer
-            sensorSerial.read();
-          }
-      }  
-      break;
-    default :
-      mode = MODE_LOW;
-      break;
-  }
-  
-  
+    // Initialize I2C
+    UpdateTrinityProtocol();
+    WireSlave.setSCL(PA11);
+    WireSlave.setSDA(PA12);
+    WireSlave.begin(I2C_ADDRESS);
+    WireSlave.onRequest(requestEvent);
 
+    // Initialize Serial Communication
+    debugSerial.begin(115200);
+    sensorSerial.begin(9600, SERIAL_8N1);
+    debugSerial.println("Initializing sensor...");
+
+    // Initialize Watchdog Timer
+    Lowpower_timer_tick = HAL_GetTick();
+    mode = MODE_ON;
+    IWatchdog.begin(WATCHDOG_TIMEOUT_MICROSECONDS);
+
+    // Clear sensor serial buffer
+    while (sensorSerial.available()) {
+        sensorSerial.read();
+    }
 }
 
+void loop() {
+    IWatchdog.reload();
+    tick = HAL_GetTick();
 
+    // LED Blink Indication
+    digitalWrite(LED_PIN, (tick % 2 == 0) ? HIGH : LOW);
+    delay(500);
+
+    switch (mode) {
+        case MODE_ON:
+            if (ZH10StartMeasurement()) {
+                latest_pm1_0 = pm1_0;
+                latest_pm2_5 = pm2_5;
+                latest_pm10 = pm10;
+            }
+            if (tick - Lowpower_timer_tick > LOWPOWER_ON_TIME) {
+                Lowpower_timer_tick = tick;
+                debugSerial.println("Switching to LOW POWER mode");
+                digitalWrite(LOWPOWER_SET_PIN, LOW);
+                mode = MODE_LOW;
+            }
+            break;
+        
+        case MODE_LOW:
+            if (tick - Lowpower_timer_tick > LOWPOWER_OFF_TIME) {
+                Lowpower_timer_tick = tick;
+                debugSerial.println("Switching to ON mode");
+                digitalWrite(LOWPOWER_SET_PIN, HIGH);
+                mode = MODE_ON;
+                while (sensorSerial.available()) {
+                    sensorSerial.read(); // Clear RX buffer
+                }
+            }
+            break;
+        
+        default:
+            mode = MODE_LOW;
+            break;
+    }
+}
 
 bool ZH10StartMeasurement() {
-  if (sensorSerial.available()) {
-    
-    IWatchdog.reload();
-    // Read the incoming byte
-    sensorSerial.readBytes(dataBuffer,32);
-  
-    if (dataBuffer[0] == 0x42&&dataBuffer[1] == 0x4D) {
-      // Verify the checksum for initiative upload mode
-      unsigned int calculatedChecksum = calculateChecksum(dataBuffer, 30);
-      unsigned int receivedChecksum = (dataBuffer[30] << 8) | dataBuffer[31];
-      if (calculatedChecksum == receivedChecksum) {
-        pm1_0 = (dataBuffer[10] << 8) | dataBuffer[11];
-        pm2_5 = (dataBuffer[12] << 8) | dataBuffer[13];
-        pm10 = (dataBuffer[14] << 8) | dataBuffer[15];
- 
-        // Print the PM values
-        debugSerial.print("PM1.0: ");
-        debugSerial.print(pm1_0);
-        debugSerial.print(" ug/m3, PM2.5: ");
-        debugSerial.print(pm2_5);
-        debugSerial.print(" ug/m3, PM10: ");
-        debugSerial.print(pm10);
-        debugSerial.println(" ug/m3");
-        device_status_error = ERROR_NONE;
-        return true;
-      } 
-      else {
-        debugSerial.println("Checksum mismatch");
+    if (sensorSerial.available()) {
+        IWatchdog.reload();
+        sensorSerial.readBytes(dataBuffer, 32);
+
+        if (dataBuffer[0] == 0x42 && dataBuffer[1] == 0x4D) {
+            unsigned int calculatedChecksum = calculateChecksum(dataBuffer, 30);
+            unsigned int receivedChecksum = (dataBuffer[30] << 8) | dataBuffer[31];
+
+            if (calculatedChecksum == receivedChecksum) {
+                pm1_0 = (dataBuffer[10] << 8) | dataBuffer[11];
+                pm2_5 = (dataBuffer[12] << 8) | dataBuffer[13];
+                pm10 = (dataBuffer[14] << 8) | dataBuffer[15];
+
+                debugSerial.printf("PM1.0: %d ug/m3, PM2.5: %d ug/m3, PM10: %d ug/m3\n", pm1_0, pm2_5, pm10);
+                device_status_error = ERROR_NONE;
+                return true;
+            } else {
+                debugSerial.println("Checksum mismatch");
+                device_status_error = ERROR_I2C;
+                return false;
+            }
+        }
         device_status_error = ERROR_I2C;
-        return false;
-      }     
     }
-    device_status_error = ERROR_I2C;
     return false;
-  }
-  // debugSerial.println("no data");
-  return false;
 }
 
 void requestEvent() {
@@ -218,9 +211,9 @@ void UpdateTrinityProtocol()
 
 // Function to calculate checksum for initiative upload mode
 unsigned int calculateChecksum(byte *data, int length) {
-  unsigned int checksum = 0;
-  for (int i = 0; i < length; i++) {
-    checksum += data[i];
-  }
-  return checksum;
+    unsigned int checksum = 0;
+    for (int i = 0; i < length; i++) {
+        checksum += data[i];
+    }
+    return checksum;
 }
