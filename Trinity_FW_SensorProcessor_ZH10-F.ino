@@ -153,7 +153,17 @@ bool ZH10StartMeasurement() {
                 pm2_5 = (dataBuffer[12] << 8) | dataBuffer[13];
                 pm10 = (dataBuffer[14] << 8) | dataBuffer[15];
 
-                debugSerial.printf("PM1.0: %d ug/m3, PM2.5: %d ug/m3, PM10: %d ug/m3\n", pm1_0, pm2_5, pm10);
+                
+                latest_pm1_0 = ((float)pm1_0 + (9*latest_pm1_0))/10.0;
+                latest_pm2_5 = ((float)pm2_5 + (9*latest_pm2_5))/10;
+                latest_pm10  = ((float)pm10  + (9*latest_pm10))/10;
+                debugSerial.print("PM1.0: ");
+                debugSerial.print(latest_pm1_0,2);
+                debugSerial.print(" ug/m3, PM2.5: ");
+                debugSerial.print(latest_pm2_5,2);
+                debugSerial.print(" ug/m3, PM10: ");
+                debugSerial.print(latest_pm10,2);
+                debugSerial.println(" ug/m3");
                 device_status_error = ERROR_NONE;
                 return true;
             } else {
