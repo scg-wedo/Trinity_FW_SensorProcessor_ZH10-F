@@ -102,9 +102,6 @@ void loop() {
     IWatchdog.reload();
     tick = HAL_GetTick();
 
-    // LED Blink Indication
-    digitalWrite(LED_PIN, (tick % 2 == 0) ? HIGH : LOW);
-    delay(500);
 
     switch (mode) {
         case MODE_ON:
@@ -137,6 +134,10 @@ void loop() {
             mode = MODE_LOW;
             break;
     }
+
+    // LED Blink Indication
+    digitalWrite(LED_PIN, (tick % 2 == 0) ? HIGH : LOW);
+    delay(500);
 }
 
 bool ZH10StartMeasurement() {
@@ -164,6 +165,7 @@ bool ZH10StartMeasurement() {
                 debugSerial.print(" ug/m3, PM10: ");
                 debugSerial.print(latest_pm10,2);
                 debugSerial.println(" ug/m3");
+                UpdateTrinityProtocol();
                 device_status_error = ERROR_NONE;
                 return true;
             } else {
